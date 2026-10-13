@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Machine Party LAN</title>
+<style>
+:root{--bg:#394039;--steel:#d6d0bd;--ink:#1d201c;--amber:#e9a216;--red:#b3261e;--ok:#2f7d4f;--mid:#5b645b}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:repeating-linear-gradient(135deg,#394039 0 18px,#353b35 18px 36px);color:var(--steel);font:16px/1.4 "Courier New",monospace;display:flex;justify-content:center}
+body.hit{animation:hit .4s}
+@keyframes hit{0%{background:var(--red)}100%{}}
+main{width:100%;max-width:520px;padding:16px;display:flex;flex-direction:column;gap:14px}
+h1{margin:0;font:900 40px/1 Impact,"Arial Narrow Bold",sans-serif;letter-spacing:2px;color:var(--amber);text-shadow:3px 3px 0 var(--ink)}
+h2{margin:0;font:900 26px/1.1 Impact,"Arial Narrow Bold",sans-serif;letter-spacing:1px}
+.bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.pl{background:var(--steel);color:var(--ink);padding:8px 10px;border:3px solid var(--ink);position:relative}
+.pl.me{outline:3px solid var(--amber)}.pl.dead{opacity:.4;text-decoration:line-through}
+.pl b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hp{color:var(--red);letter-spacing:2px}.st{position:absolute;right:8px;top:6px;font-weight:700}.st.ok{color:var(--ok)}.st.x{color:var(--red)}
+.stage{background:var(--steel);color:var(--ink);border:4px solid var(--ink);padding:16px;min-height:260px;display:flex;flex-direction:column;gap:12px;justify-content:center;align-items:stretch;box-shadow:6px 6px 0 var(--ink)}
+.msg{font:900 22px/1.15 Impact,"Arial Narrow Bold",sans-serif;text-align:center}
+button,input{font:inherit}
+button{cursor:pointer;border:3px solid var(--ink);background:var(--amber);color:var(--ink);padding:14px;font-weight:700;touch-action:manipulation}
+button:active{transform:translate(2px,2px)}button:disabled{background:#aaa;cursor:default}
+button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-offset:2px}
+input{padding:14px;border:3px solid var(--ink);background:#fff;color:var(--ink)}
+.pads{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pad{height:96px;opacity:.55}.pad.lit{opacity:1;filter:brightness(1.3);transform:scale(.97)}
+.big{height:180px;font:900 40px Impact,sans-serif;color:#fff}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.tile{height:72px;font-size:22px;padding:0}
+.tile.bomb{background:var(--red);color:#fff}.tile.safe{background:var(--ok);color:#fff}
+.small{font-size:13px;color:#b9b4a2;text-align:center}
+</style></head><body><main>
+<h1>MACHINE PARTY</h1>
+<div class="bar" id="bar"></div>
+<div class="stage" id="stage"></div>
+<div class="small" id="foot"></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let ws,me=null,S=null,lit=-1,canIn=false,memTxt='',prevHp=3,err='';
+let mc=0,pk=-1;const nm=id=>(S.players.find(p=>p.id===id)||{name:'?'}).name;
+function mash(){mc++;const e=$('cnt');if(e)e.textContent=mc;send({t:'in'})}
+function pickSide(i){pk=i;send({t:'in',v:i});render()}
+const COL=['#c0392b','#2e86c1','#d4ac0d','#239b56'];
+const send=o=>ws.readyState===1&&ws.send(JSON.stringify(o));
+
+function join(){
+  const name=$('nm')?$('nm').value:'';
+  ws=new WebSocket('ws://'+location.host);
+  ws.onopen=()=>send({t:'join',name});
+  ws.onmessage=e=>{const m=JSON.parse(e.data);
+    if(m.t==='s'){me=m.you;S=m;const my=m.players.find(p=>p.id===me);
+      if(my){if(my.hp<prevHp){document.body.classList.remove('hit');void document.body.offsetWidth;document.body.classList.add('hit')}prevHp=my.hp}
+      if(m.phase!=='play')canIn=false;render()}
+    else if(m.t==='mem')mem(m.seq);
+    else if(m.t==='err'){err=m.m;render()}};
+  ws.onclose=()=>{me=null;S=null;err='Disconnected from server.';render()};
+}
+function mem(seq){
+  canIn=false;memTxt='WATCH THE PANELS';render();
+  seq.forEach((v,i)=>{setTimeout(()=>{lit=v;render()},i*700+300);setTimeout(()=>{lit=-1;render()},i*700+700)});
+  setTimeout(()=>{canIn=true;memTxt='REPEAT THE SEQUENCE';render()},seq.length*700+900);
+}
+const my=()=>S&&S.players.find(p=>p.id===me);
+const done=()=>{const p=my();return !p||p.st!==''||p.hp<1};
+function tap(v){if(S.game.type==='memory'&&!canIn)return;if(done())return;
+  if(S.game.type==='memory'){lit=v;render();setTimeout(()=>{lit=-1;render()},150)}
+  send({t:'in',v})}
+
+function render(){
+  const bar=$('bar'),st=$('stage'),foot=$('foot');
+  if(S&&S.phase==='intro'){mc=0;pk=-1}
+  if(!S){bar.innerHTML='';foot.textContent='';
+    st.innerHTML='<h2>Enter the chamber</h2><input id="nm" maxlength="12" placeholder="Your name" autocomplete="off"><button onclick="join()">JOIN GAME</button>'+(err?'<div class="msg" style="color:var(--red)">'+err+'</div>':'');
+    return}
+  bar.innerHTML=S.players.map(p=>`<div class="pl ${p.id===me?'me':''} ${p.hp<1?'dead':''}"><b>${esc(p.name)}${p.id===S.host?' *':''}</b><span class="hp">${'♥'.repeat(Math.max(p.hp,0))||'-'}</span><span class="st ${p.st}">${p.st==='ok'?'✓':p.st==='x'?'✕':''}</span></div>`).join('');
+  foot.textContent=S.phase==='lobby'?'Others join at '+location.host+' (same Wi-Fi/LAN). 2-4 players. * = host':'Round '+S.round+' - lose all 3 hearts and you are out';
+  const g=S.game||{},ph=S.phase,ban=S.msg?`<div class="msg">${esc(S.msg)}</div>`:'';
+  let h='';
+  if(ph==='lobby'){const isH=me===S.host;
+    h=`<h2>Waiting room</h2><div class="msg">${S.players.length} / 4 in the chamber</div>`+(isH?`<button onclick="send({t:'start'})" ${S.players.length<2?'disabled':''}>${S.players.length<2?'NEED 2+ PLAYERS':'START GAME'}</button>`:'<div class="msg">Waiting for host to start</div>')}+'<div class="small">Games depend on players alive: 2 = Roulette Duel, 3+ = Hot Potato and Odd One Out, 4 = Tug of War 2v2.</div>'
+  else if(ph==='intro')h=ban;
+  else if(ph==='shock'){
+    h=ban+(S.win===me?S.players.filter(p=>p.id!==me&&p.hp>0).map(p=>`<button style="background:var(--red);color:#fff" onclick="send({t:'shock',target:'${p.id}'})">SHOCK ${esc(p.name)}</button>`).join(''):'<div class="msg">Winner is choosing a victim...</div>')}
+  else if(ph==='over'){h=ban+(me===S.host?'<button onclick="send({t:\'again\'})">PLAY AGAIN</button>':'<div class="msg">Waiting for host</div>')}
+  else if(ph==='result')h=ban;
+  else if(ph==='play'){
+    const d=done();
+    if(g.type==='memory')h=`<div class="msg">${d?(my().st==='ok'?'DONE - WAITING':'WRONG'):memTxt}</div><div class="pads">${[0,1,2,3].map(i=>`<button class="pad ${lit===i?'lit':''}" style="background:${COL[i]}" onclick="tap(${i})" aria-label="Panel ${i+1}"></button>`).join('')}</div>`;
+    else if(g.type==='reaction')h=`<div class="msg">${g.go?'NOW!':'WAIT FOR GREEN. EARLY = PAIN'}</div><button class="big" style="background:${g.go?'var(--ok)':'var(--red)'}" onclick="tap(0)" ${d?'disabled':''}>${d?(my().st==='ok'?'OK':'TOO EARLY'):g.go?'FIRE':'HOLD'}</button>`;
+    else if(g.type==='tiles')h=`<div class="msg">${d?(my().st==='ok'?'SAFE':'BOOM'):'PICK ONE TILE. 4 ARE MINES'}</div><div class="tiles">${Array.from({length:12},(_,i)=>{const t=g.taken[i];
+      return `<button class="tile ${t?(t.bomb?'bomb':'safe'):''}" onclick="tap(${i})" ${t||d?'disabled':''}>${t?(t.bomb?'✹':esc((S.players.find(p=>p.id===t.by)||{name:'?'}).name[0])):''}</button>`}).join('')}</div>`;
+    else if(g.type==='mash'||g.type==='tug'){const tm=g.type==='tug'?g.teams[me]:-1;
+      h=`<div class="msg">${tm<0?'MASH! LOWEST COUNT FAILS':'TEAM '+(tm?'BLUE':'RED')+' - MASH! LOSING TEAM FAILS'}</div><button class="big" style="background:${tm<0?'#c0392b':COL[tm?1:0]}" onpointerdown="mash()">MASH <span id="cnt">${mc}</span></button>`}
+    else if(g.type==='roulette'){const foe=S.players.find(p=>p.id!==me&&p.hp>0)||{name:'?'};
+      h=`<div class="msg">CHAMBER ${g.n+1} OF 6${g.last?' - CLICK':''}</div>`+(g.turn===me?`<button onclick="send({t:'in',v:'self'})">FIRE AT MYSELF</button><button style="background:var(--red);color:#fff" onclick="send({t:'in',v:'foe'})">FIRE AT ${esc(foe.name)}</button><div class="small">8 seconds, or you pull it on yourself</div>`:`<div class="msg">${esc(nm(g.turn))} IS DECIDING...</div>`)}
+    else if(g.type==='potato'){
+      h=g.holder===me?'<div class="msg" style="color:var(--red)">YOU HAVE THE BOMB. PASS IT!</div>'+S.players.filter(p=>p.id!==me&&p.hp>0).map(p=>`<button onclick="send({t:'in',v:'${p.id}'})">PASS TO ${esc(p.name)}</button>`).join(''):`<div class="msg">${esc(nm(g.holder))} HAS THE BOMB</div><div class="small">The fuse is hidden. Don't be holding it when it blows.</div>`}
+    else if(g.type==='odd')h=`<div class="msg">${pk<0?'PICK A SIDE. THE MAJORITY FAILS':'LOCKED IN'}</div><div class="pads">${['LEFT','RIGHT'].map((l,i)=>`<button class="big" style="height:120px;background:${COL[i?1:0]}" onclick="pickSide(${i})" ${pk>=0?'disabled':''}>${l}</button>`).join('')}</div>`;
+  }
+  st.innerHTML=h;
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+render();
+</script></body></html>
